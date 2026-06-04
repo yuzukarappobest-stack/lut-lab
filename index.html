@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LUT Lab</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">LUT Lab</p>
+          <h1>写真から .cube LUT を生成</h1>
+          <p class="lead">
+            before/after の差分解析、または after 画像だけの色傾向推定から、動画編集ソフトで使える3D LUTを書き出します。
+          </p>
+        </div>
+        <div class="status-panel" aria-live="polite">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">画像を追加してください</span>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <aside class="controls" aria-label="LUT生成設定">
+          <div class="mode-tabs" role="tablist" aria-label="生成モード">
+            <button class="mode-tab is-active" id="pairModeBtn" type="button" data-mode="pair">before / after</button>
+            <button class="mode-tab" id="lookModeBtn" type="button" data-mode="look">afterのみ</button>
+          </div>
+
+          <div class="mode-panel is-active" id="pairPanel">
+            <div class="input-group">
+              <label for="beforeFiles">before画像</label>
+              <input id="beforeFiles" type="file" accept="image/*" multiple />
+              <p class="hint">複数枚の場合は after画像と同じ順番で対応します。</p>
+            </div>
+            <div class="input-group">
+              <label for="afterFiles">after画像</label>
+              <input id="afterFiles" type="file" accept="image/*" multiple />
+            </div>
+          </div>
+
+          <div class="mode-panel" id="lookPanel">
+            <div class="input-group">
+              <label for="lookFiles">after画像</label>
+              <input id="lookFiles" type="file" accept="image/*" multiple />
+              <p class="hint">複数枚を使うと、単一写真の偏りを減らして共通の色傾向を拾いやすくなります。</p>
+            </div>
+          </div>
+
+          <div class="settings-grid">
+            <div class="input-group">
+              <label for="lutSize">LUTサイズ</label>
+              <select id="lutSize">
+                <option value="17">17</option>
+                <option value="33" selected>33</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label for="strength">強度 <span id="strengthValue">100%</span></label>
+              <input id="strength" type="range" min="0" max="150" value="100" />
+            </div>
+            <div class="input-group">
+              <label for="smoothness">滑らかさ <span id="smoothnessValue">2</span></label>
+              <input id="smoothness" type="range" min="0" max="5" value="2" />
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="primary" id="generateBtn" type="button">LUTを生成</button>
+            <button id="downloadBtn" type="button" disabled>.cubeを書き出し</button>
+          </div>
+
+          <dl class="metrics">
+            <div>
+              <dt>解析画像</dt>
+              <dd id="metricImages">0</dd>
+            </div>
+            <div>
+              <dt>サンプル</dt>
+              <dd id="metricSamples">0</dd>
+            </div>
+            <div>
+              <dt>平均色差</dt>
+              <dd id="metricDelta">-</dd>
+            </div>
+            <div>
+              <dt>生成方式</dt>
+              <dd id="metricMode">-</dd>
+            </div>
+          </dl>
+        </aside>
+
+        <section class="preview-area" aria-label="プレビュー">
+          <div class="preview-toolbar">
+            <h2>プレビュー</h2>
+            <button id="swapPreviewBtn" type="button" disabled>before / after 表示切替</button>
+          </div>
+          <div class="canvas-grid">
+            <figure>
+              <canvas id="sourceCanvas" width="960" height="640"></canvas>
+              <figcaption>入力</figcaption>
+            </figure>
+            <figure>
+              <canvas id="resultCanvas" width="960" height="640"></canvas>
+              <figcaption>LUT適用後</figcaption>
+            </figure>
+          </div>
+          <div class="notes">
+            <p>
+              before/after方式は同じ構図の画像ペアほど精度が上がります。afterのみ方式は「厳密な復元」ではなく、画像の見た目から近いルックを作る推定です。
+            </p>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
