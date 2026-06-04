@@ -162,6 +162,7 @@ async function loadImageBitmap(file) {
 function buildLutFromPairs(pairs, size, strength, smoothness) {
   const total = size * size * size;
   const sums = Array.from({ length: total }, () => [0, 0, 0, 0]);
+  const toneBins = Array.from({ length: 65 }, () => [0, 0]);
   let samples = 0;
   let deltaSum = 0;
 
@@ -183,6 +184,7 @@ function buildLutFromPairs(pairs, size, strength, smoothness) {
         const ag = afterData.data[idx + 1] / 255;
         const ab = afterData.data[idx + 2] / 255;
         const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        const afterLuma = 0.2126 * ar + 0.7152 * ag + 0.0722 * ab;
         if ((luma < 0.015 && ar < 0.015 && ag < 0.015 && ab < 0.015) || luma > 0.99) continue;
 
         const ri = quantize(r, size);
@@ -193,6 +195,9 @@ function buildLutFromPairs(pairs, size, strength, smoothness) {
         sums[lutIdx][1] += (ag - g) * strength;
         sums[lutIdx][2] += (ab - b) * strength;
         sums[lutIdx][3] += 1;
+        const toneIdx = quantize(luma, toneBins.length);
+        toneBins[toneIdx][0] += clamp01(luma + (afterLuma - luma) * strength);
+        toneBins[toneIdx][1] += 1;
         deltaSum += Math.hypot(ar - r, ag - g, ab - b);
         samples += 1;
       }
@@ -206,14 +211,16 @@ function buildLutFromPairs(pairs, size, strength, smoothness) {
 
   fillMissingDeltas(deltas, size);
   for (let i = 0; i < smoothness; i += 1) smoothDeltas(deltas, size);
+  const toneCurve = buildToneCurve(toneBins);
 
   const lut = new Float32Array(total * 3);
   forEachNode(size, (r, g, b, idx) => {
     const base = [r / (size - 1), g / (size - 1), b / (size - 1)];
     const delta = deltas[idx] || [0, 0, 0];
-    lut[idx * 3] = clamp01(base[0] + delta[0]);
-    lut[idx * 3 + 1] = clamp01(base[1] + delta[1]);
-    lut[idx * 3 + 2] = clamp01(base[2] + delta[2]);
+    const toned = applyToneCurve(base, toneCurve);
+    lut[idx * 3] = clamp01(toned[0] + delta[0]);
+    lut[idx * 3 + 1] = clamp01(toned[1] + delta[1]);
+    lut[idx * 3 + 2] = clamp01(toned[2] + delta[2]);
   });
 
   return { lut, samples, averageDelta: samples ? deltaSum / samples : 0 };
@@ -264,17 +271,26 @@ function buildLutFromLook(images, size, strength) {
   const midTint = normalizedTint(stats.mid);
   const highTint = normalizedTint(stats.high);
   const sortedLuma = stats.luma.sort((a, b) => a - b);
+  const p02 = percentile(sortedLuma, 0.02);
   const p10 = percentile(sortedLuma, 0.1);
+  const p50 = percentile(sortedLuma, 0.5);
   const p90 = percentile(sortedLuma, 0.9);
-  const contrast = clamp((p90 - p10 - 0.48) * 1.6, -0.28, 0.34);
-  const satBoost = clamp((stats.sat - 0.2) * 0.55, -0.13, 0.2);
+  const p98 = percentile(sortedLuma, 0.98);
+  const contrast = clamp((p90 - p10 - 0.42) * 2.1, -0.34, 0.52);
+  const satBoost = clamp((stats.sat - 0.18) * 0.75, -0.16, 0.3);
+  const lookTone = {
+    black: clamp(p02 - 0.02, 0, 0.24),
+    mid: clamp(p50, 0.18, 0.82),
+    white: clamp(p98 + 0.02, 0.68, 1),
+  };
   const meanTint = normalizedTint([...stats.mean, 1]);
 
   const lut = new Float32Array(size * size * size * 3);
   let deltaSum = 0;
   forEachNode(size, (r, g, b, idx) => {
     const input = [r / (size - 1), g / (size - 1), b / (size - 1)];
-    let out = applyContrast(input, contrast * strength);
+    let out = applyLookTone(input, lookTone, strength);
+    out = applyContrast(out, contrast * strength);
     out = applySaturation(out, 1 + satBoost * strength);
     const luma = getLuma(out);
     const toneTint = mix3(
@@ -415,6 +431,72 @@ function fillMissingDeltas(deltas, size) {
     const nearest = findNearestDelta(deltas, size, r, g, b, 4);
     deltas[idx] = nearest || fallback;
   });
+}
+
+function buildToneCurve(toneBins) {
+  const curve = new Float32Array(toneBins.length);
+  let fallbackDelta = 0;
+  let known = 0;
+
+  for (let i = 0; i < toneBins.length; i += 1) {
+    const input = i / (toneBins.length - 1);
+    const count = toneBins[i][1];
+    if (count) {
+      const mapped = toneBins[i][0] / count;
+      fallbackDelta += mapped - input;
+      known += 1;
+      curve[i] = mapped;
+    } else {
+      curve[i] = Number.NaN;
+    }
+  }
+
+  fallbackDelta = known ? fallbackDelta / known : 0;
+  for (let i = 0; i < curve.length; i += 1) {
+    if (!Number.isNaN(curve[i])) continue;
+    const input = i / (curve.length - 1);
+    curve[i] = clamp01(input + fallbackDelta);
+  }
+
+  for (let pass = 0; pass < 3; pass += 1) {
+    const copy = new Float32Array(curve);
+    for (let i = 1; i < curve.length - 1; i += 1) {
+      curve[i] = copy[i - 1] * 0.25 + copy[i] * 0.5 + copy[i + 1] * 0.25;
+    }
+  }
+
+  let previous = curve[0];
+  for (let i = 1; i < curve.length; i += 1) {
+    previous = Math.max(previous, curve[i]);
+    curve[i] = clamp01(previous);
+  }
+
+  return curve;
+}
+
+function applyToneCurve(rgb, curve) {
+  const luma = getLuma(rgb);
+  const mapped = sampleCurve(curve, luma);
+  const scale = luma > 0.0001 ? mapped / luma : mapped;
+  return rgb.map((v) => clamp01(v * scale));
+}
+
+function applyLookTone(rgb, tone, strength) {
+  const luma = getLuma(rgb);
+  const normalized = clamp01((luma - tone.black) / Math.max(0.08, tone.white - tone.black));
+  const gamma = clamp(1 + (tone.mid - 0.5) * 0.9, 0.65, 1.35);
+  const corrected = Math.pow(normalized, gamma);
+  const shaped = corrected * corrected * (3 - 2 * corrected);
+  const mapped = mix(luma, shaped, clamp(strength * 0.42, 0, 1.25));
+  const scale = luma > 0.0001 ? mapped / luma : mapped;
+  return rgb.map((v) => clamp01(v * scale));
+}
+
+function sampleCurve(curve, value) {
+  const scaled = clamp01(value) * (curve.length - 1);
+  const lo = Math.floor(scaled);
+  const hi = Math.min(curve.length - 1, lo + 1);
+  return mix(curve[lo], curve[hi], scaled - lo);
 }
 
 function findNearestDelta(deltas, size, r, g, b, radius) {
@@ -559,6 +641,10 @@ function smoothstep(edge0, edge1, value) {
 
 function mix3(a, b, t) {
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+}
+
+function mix(a, b, t) {
+  return a + (b - a) * t;
 }
 
 function clamp(value, min, max) {
