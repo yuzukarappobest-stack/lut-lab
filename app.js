@@ -163,6 +163,7 @@ function buildLutFromPairs(pairs, size, strength, smoothness) {
   const total = size * size * size;
   const sums = Array.from({ length: total }, () => [0, 0, 0, 0]);
   const toneBins = Array.from({ length: 65 }, () => [0, 0]);
+  const counts = new Float32Array(total);
   let samples = 0;
   let deltaSum = 0;
 
@@ -195,6 +196,7 @@ function buildLutFromPairs(pairs, size, strength, smoothness) {
         sums[lutIdx][1] += (ag - g) * strength;
         sums[lutIdx][2] += (ab - b) * strength;
         sums[lutIdx][3] += 1;
+        counts[lutIdx] += 1;
         const toneIdx = quantize(luma, toneBins.length);
         toneBins[toneIdx][0] += clamp01(luma + (afterLuma - luma) * strength);
         toneBins[toneIdx][1] += 1;
@@ -209,9 +211,10 @@ function buildLutFromPairs(pairs, size, strength, smoothness) {
     return [sum[0] / sum[3], sum[1] / sum[3], sum[2] / sum[3]];
   });
 
-  fillMissingDeltas(deltas, size);
-  for (let i = 0; i < smoothness; i += 1) smoothDeltas(deltas, size);
-  const toneCurve = buildToneCurve(toneBins);
+  fillMissingDeltas(deltas, counts, size);
+  for (let i = 0; i < smoothness + 2; i += 1) smoothDeltas(deltas, size);
+  regularizeDeltas(deltas, counts, size, strength);
+  const toneCurve = regularizeToneCurve(buildToneCurve(toneBins), strength);
 
   const lut = new Float32Array(total * 3);
   forEachNode(size, (r, g, b, idx) => {
@@ -415,21 +418,42 @@ function downloadCube() {
   URL.revokeObjectURL(link.href);
 }
 
-function fillMissingDeltas(deltas, size) {
-  const global = [0, 0, 0];
-  let known = 0;
-  for (const delta of deltas) {
-    if (!delta) continue;
-    global[0] += delta[0];
-    global[1] += delta[1];
-    global[2] += delta[2];
-    known += 1;
-  }
-  const fallback = known ? global.map((v) => v / known) : [0, 0, 0];
+function fillMissingDeltas(deltas, counts, size) {
   forEachNode(size, (r, g, b, idx) => {
     if (deltas[idx]) return;
-    const nearest = findNearestDelta(deltas, size, r, g, b, 4);
-    deltas[idx] = nearest || fallback;
+    const nearest = findNearestDelta(deltas, counts, size, r, g, b, 4);
+    deltas[idx] = nearest || [0, 0, 0];
+  });
+}
+
+function regularizeDeltas(deltas, counts, size, strength) {
+  const maxDelta = 0.12 + Math.min(strength, 3) * 0.045;
+  forEachNode(size, (r, g, b, idx) => {
+    const base = [r / (size - 1), g / (size - 1), b / (size - 1)];
+    const luma = getLuma(base);
+    const saturation = Math.max(...base) - Math.min(...base);
+    const edgeGuard = Math.max(
+      smoothstep(0.72, 1, saturation),
+      1 - smoothstep(0.04, 0.14, luma),
+      smoothstep(0.86, 0.98, luma),
+    );
+    const sampleWeight = counts[idx] ? clamp(Math.log1p(counts[idx]) / Math.log1p(10), 0.18, 1) : 0.08;
+    const guardWeight = mix(1, 0.28, edgeGuard);
+    const reliability = sampleWeight * guardWeight;
+    let delta = limitVector(deltas[idx], maxDelta);
+    delta = delta.map((v) => v * reliability);
+
+    const neutralDistance = Math.max(Math.abs(base[0] - base[1]), Math.abs(base[1] - base[2]), Math.abs(base[0] - base[2]));
+    if (neutralDistance < 0.055) {
+      const luminanceDelta = (delta[0] + delta[1] + delta[2]) / 3;
+      delta = [
+        mix(luminanceDelta, delta[0], 0.18),
+        mix(luminanceDelta, delta[1], 0.18),
+        mix(luminanceDelta, delta[2], 0.18),
+      ];
+    }
+
+    deltas[idx] = delta;
   });
 }
 
@@ -474,6 +498,21 @@ function buildToneCurve(toneBins) {
   return curve;
 }
 
+function regularizeToneCurve(curve, strength) {
+  const toneWeight = clamp(0.42 + Math.min(strength, 3) * 0.09, 0.42, 0.68);
+  for (let i = 0; i < curve.length; i += 1) {
+    const input = i / (curve.length - 1);
+    const maxShift = 0.18 + Math.min(strength, 3) * 0.04;
+    const limited = clamp(curve[i], input - maxShift, input + maxShift);
+    const centerWeight = smoothstep(0.04, 0.18, Math.min(input, 1 - input));
+    const localWeight = toneWeight * mix(0.45, 1, centerWeight);
+    curve[i] = clamp01(mix(input, limited, localWeight));
+  }
+  curve[0] = 0;
+  curve[curve.length - 1] = 1;
+  return curve;
+}
+
 function applyToneCurve(rgb, curve) {
   const luma = getLuma(rgb);
   const mapped = sampleCurve(curve, luma);
@@ -499,7 +538,7 @@ function sampleCurve(curve, value) {
   return mix(curve[lo], curve[hi], scaled - lo);
 }
 
-function findNearestDelta(deltas, size, r, g, b, radius) {
+function findNearestDelta(deltas, counts, size, r, g, b, radius) {
   let best = null;
   let bestDistance = Infinity;
   for (let dz = -radius; dz <= radius; dz += 1) {
@@ -509,17 +548,20 @@ function findNearestDelta(deltas, size, r, g, b, radius) {
         const ng = g + dy;
         const nb = b + dz;
         if (nr < 0 || ng < 0 || nb < 0 || nr >= size || ng >= size || nb >= size) continue;
-        const delta = deltas[lutIndex(nr, ng, nb, size)];
+        const sourceIdx = lutIndex(nr, ng, nb, size);
+        const delta = deltas[sourceIdx];
         if (!delta) continue;
+        const confidence = Math.max(1, Math.log1p(counts[sourceIdx]));
         const distance = dx * dx + dy * dy + dz * dz;
-        if (distance < bestDistance) {
-          bestDistance = distance;
+        const score = distance / confidence;
+        if (score < bestDistance) {
+          bestDistance = score;
           best = delta;
         }
       }
     }
   }
-  return best ? [...best] : null;
+  return best ? best.map((v) => v * 0.35) : null;
 }
 
 function smoothDeltas(deltas, size) {
@@ -645,6 +687,13 @@ function mix3(a, b, t) {
 
 function mix(a, b, t) {
   return a + (b - a) * t;
+}
+
+function limitVector(vector, maxLength) {
+  const length = Math.hypot(vector[0], vector[1], vector[2]);
+  if (length <= maxLength || length < 0.0001) return [...vector];
+  const scale = maxLength / length;
+  return [vector[0] * scale, vector[1] * scale, vector[2] * scale];
 }
 
 function clamp(value, min, max) {
