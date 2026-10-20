@@ -178,8 +178,9 @@
       line(context,p.x+p.w-5,p.y+p.h+5,p.x+p.w+6,p.y+p.h-6,"#3d8ab3",2);
     }
   }
-  function drawGrid(context){
+  function drawGrid(context,view){
     context.fillStyle="#fff";context.fillRect(0,0,W,H);
+    if(view==="front")return;
     context.save();context.strokeStyle="#f1f4f6";context.lineWidth=1;
     for(let x=0;x<=W;x+=50){context.beginPath();context.moveTo(x,0);context.lineTo(x,H);context.stroke();}
     for(let y=0;y<=H;y+=50){context.beginPath();context.moveTo(0,y);context.lineTo(W,y);context.stroke();}
@@ -203,7 +204,7 @@
     text(context,"右 →",865,320,13,colors.muted,"550");
   }
   function renderView(context,view,exporting=false){
-    drawGrid(context);
+    drawGrid(context,view);
     text(context,view==="front"?"PHOTO VIEW / 正面":"TOP VIEW / 俯瞰",24,30,19,"#42647c","800");
     text(context,view==="front"?"写真は見た目だけを配置。光源は概念上の位置です。":"中心が被写体、下がカメラ。ドラッグで前後左右を編集。",24,55,13,"#8795a1");
     if(view==="front")drawPhoto(context,exporting);else drawTop(context);
@@ -368,17 +369,19 @@
   canvas.addEventListener("pointercancel",endDrag);
   canvas.addEventListener("lostpointercapture",endDrag);
 
-  function setPhoto(data){
+  function setPhoto(data,preservePlacement=false){
     if(!data){photoImage=null;scene.imageData=null;update();return;}
     const image=new Image();
     image.onload=()=>{
       photoImage=image;scene.imageData=data;
-      scene.photo.ratio=image.width/image.height;
-      scene.photo.w=Math.min(570,440*scene.photo.ratio,850);
-      scene.photo.h=scene.photo.w/scene.photo.ratio;
-      if(scene.photo.h>450){scene.photo.h=450;scene.photo.w=450*scene.photo.ratio;}
-      scene.photo.x=(W-scene.photo.w)/2;
-      scene.photo.y=(H-scene.photo.h)/2;
+      if(!preservePlacement){
+        scene.photo.ratio=image.width/image.height;
+        scene.photo.w=Math.min(570,440*scene.photo.ratio,850);
+        scene.photo.h=scene.photo.w/scene.photo.ratio;
+        if(scene.photo.h>450){scene.photo.h=450;scene.photo.w=450*scene.photo.ratio;}
+        scene.photo.x=(W-scene.photo.w)/2;
+        scene.photo.y=(H-scene.photo.h)/2;
+      }
       update();toast("写真を読み込みました");
     };
     image.onerror=()=>toast("画像の読み込みに失敗しました");
@@ -483,7 +486,7 @@
       $("showBeams").checked=scene.showBeams;$("showLabels").checked=scene.showLabels;
       $("intent").value=typeof data.intent==="string"?data.intent:"";
       if(data.scene.imageData&&typeof data.scene.imageData==="string"&&data.scene.imageData.startsWith("data:image/")){
-        setPhoto(data.scene.imageData);
+        setPhoto(data.scene.imageData,true);
       }else{photoImage=null;scene.imageData=null;}
       if(data.scene.photo&&Number.isFinite(data.scene.photo.w)){
         const p=data.scene.photo;
