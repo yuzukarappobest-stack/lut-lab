@@ -23,6 +23,14 @@
   };
   let photoImage = null;
   let originalFile = null; // Retain exact imported bytes for the AI ZIP.
+  let readyZip = null, readyZipUrl = null, zipChangeVersion = 0;
+  function invalidatePreparedZip(){
+    zipChangeVersion++;
+    readyZip = null;
+    if(readyZipUrl){URL.revokeObjectURL(readyZipUrl);readyZipUrl=null;}
+    $("zipReady").hidden=true;
+    $("zipDownloadLink").removeAttribute("href");
+  }
   let drag = null;
   let promptDirty = false;
   let toastTimer = null;
@@ -217,6 +225,7 @@
   }
   function draw(){renderView(ctx,scene.view,false);}
   function update(withFields=false){
+    invalidatePreparedZip();
     draw(); renderList();
     if(withFields) renderFields();
     if(!promptDirty)$("prompt").value=buildPrompt();
@@ -452,10 +461,10 @@
   });
   $("showBeams").addEventListener("change",e=>{scene.showBeams=e.target.checked;update();});
   $("showLabels").addEventListener("change",e=>{scene.showLabels=e.target.checked;update();});
-  $("intent").addEventListener("input",()=>{if(!promptDirty)$("prompt").value=buildPrompt();});
-  $("promptMode").addEventListener("change",()=>{promptDirty=false;$("prompt").value=buildPrompt();});
-  $("prompt").addEventListener("input",()=>{promptDirty=true;});
-  $("regenerate").addEventListener("click",()=>{promptDirty=false;$("prompt").value=buildPrompt();toast("説明文を再生成しました");});
+  $("intent").addEventListener("input",()=>{if(!promptDirty)$("prompt").value=buildPrompt();invalidatePreparedZip();});
+  $("promptMode").addEventListener("change",()=>{promptDirty=false;$("prompt").value=buildPrompt();invalidatePreparedZip();});
+  $("prompt").addEventListener("input",()=>{promptDirty=true;invalidatePreparedZip();});
+  $("regenerate").addEventListener("click",()=>{promptDirty=false;$("prompt").value=buildPrompt();invalidatePreparedZip();toast("説明文を再生成しました");});
   async function copy(textValue){
     try{
       if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(textValue);
@@ -558,15 +567,24 @@
       "image/heif":".heif","image/webp":".webp","image/tiff":".tif"}[file.type]||".img";
   }
   $("zipBtn").addEventListener("click",async ()=>{
-    if(!scene.imageData){toast("まず元写真を読み込んでください");return;}
+    const status=$("zipStatus");
+    if(!scene.imageData){
+      status.textContent="写真がありません。先に「写真を選ぶ」で読み込んでください。";
+      toast("まず元写真を読み込んでください");
+      return;
+    }
     if(!originalFile){
+      status.textContent="元写真の原本が必要です。ファイルを再選択してください。";
       toast("元写真の原本を再選択してください");
       $("zipSourceInput").click();
       return;
     }
-    const button=$("zipBtn");button.disabled=true;button.textContent="ZIPを作成中…";
+    const button=$("zipBtn");button.disabled=true;button.textContent="ZIPを準備中…";
+    invalidatePreparedZip();
+    const version=zipChangeVersion;
+    status.textContent="4ファイルをZIPにまとめています。少しお待ちください…";
     try{
-      if(!window.LightingZip)throw new Error("ZIP作成機能を読み込めませんでした");
+      if(!window.LightingZip)throw new Error("ZIP作成機能が読み込まれていません。ページを再読み込みしてください。");
       const diagram=await createDiagramPngBlob();
       const entries=[
         {name:"original"+imageExtension(originalFile),blob:originalFile},
@@ -575,10 +593,45 @@
         {name:"lighting-data.json",blob:new Blob([JSON.stringify(lightingData(),null,2)],{type:"application/json;charset=utf-8"})}
       ];
       const archive=await window.LightingZip.createZip(entries);
-      downloadBlob(archive,"lighting-package.zip");
-      toast("ZIPを保存しました（元写真・図・指示文・JSON）");
-    }catch(error){toast("ZIP保存エラー: "+error.message);}
-    finally{button.disabled=false;button.textContent="元写真＋図＋指示文をZIP保存";}
+      if(version!==zipChangeVersion){
+        status.textContent="ZIPの準備中に配置が変更されました。もう一度「ZIPを作成する」を押してください。";
+        return;
+      }
+      readyZip=archive;
+      readyZipUrl=URL.createObjectURL(archive);
+      const link=$("zipDownloadLink");
+      link.href=readyZipUrl;
+      $("zipReady").hidden=false;
+      const share=$("zipShareBtn");
+      share.hidden=!(typeof navigator.share==="function"&&typeof navigator.canShare==="function"&&
+        typeof File==="function"&&navigator.canShare({files:[new File([archive],"lighting-package.zip",{type:"application/zip"})]}));
+      status.textContent="ZIPの準備が完了しました。下の「ZIPをファイルに保存」を押してください。iPhoneでは共有メニューから「ファイルに保存」も選べます。";
+      toast("ZIPを作成しました。保存ボタンを押してください");
+    }catch(error){
+      status.textContent="ZIPの作成に失敗しました: "+error.message;
+      toast("ZIP作成エラー: "+error.message);
+    }finally{
+      button.disabled=false;button.textContent="ZIPを作成する";
+    }
+  });
+  $("zipShareBtn").addEventListener("click",()=>{
+    if(!readyZip || typeof navigator.share!=="function")return;
+    try{
+      const file=new File([readyZip],"lighting-package.zip",{type:"application/zip"});
+      const sharePromise=navigator.share({files:[file]});
+      if(sharePromise && typeof sharePromise.catch==="function"){
+        sharePromise.catch(error=>{
+          if(error.name!=="AbortError"){
+            $("zipStatus").textContent="共有できませんでした。「ZIPをファイルに保存」をお試しください。";
+          }
+        });
+      }
+    }catch(error){
+      $("zipStatus").textContent="共有できませんでした。「ZIPをファイルに保存」をお試しください。";
+    }
+  });
+  $("zipDownloadLink").addEventListener("click",()=>{
+    $("zipStatus").textContent="保存を開始しました。iPhoneの「ファイル」アプリ内のダウンロード先をご確認ください。";
   });
   update(true);
 })();
