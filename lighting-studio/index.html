@@ -75,8 +75,9 @@
     <aside class="output panel">
       <div class="section-title">AIへの指示</div>
       <p class="aside-help">ChatGPTなどに「元写真」と「ライティング図」を添付し、この文章を貼り付けてください。</p>
+      <label class="field"><span>プロンプトの種類</span><select id="promptMode" aria-label="プロンプトの種類"><option value="simple">シンプル（おすすめ）</option><option value="detailed">詳細（光源設定を文章化）</option></select></label>
       <label class="field"><span>仕上がりの補足・意図</span><textarea id="intent" rows="3" placeholder="例：自然な色、柔らかい影、朝の斜光。背景の形は変えない。"></textarea></label>
-      <label class="field"><span>生成したプロンプト（編集可能）</span><textarea id="prompt" rows="14" spellcheck="false"></textarea></label>
+      <label class="field"><span>生成したプロンプト（編集可能）</span><textarea id="prompt" rows="9" spellcheck="false"></textarea></label>
       <div class="output-buttons"><button id="regenerate" class="button subtle">プロンプト再生成</button><button id="copyPrompt" class="button primary">文章をコピー</button></div>
       <div class="divider"></div>
       <div class="section-title">保存・共有</div>
