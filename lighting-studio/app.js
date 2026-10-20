@@ -5,6 +5,9 @@
   const ctx = canvas.getContext("2d");
   if (!ctx) { $("status").textContent = "このブラウザではCanvasを利用できません。"; return; }
   const W = 1000, H = 650, SCALE = 82;
+  const SUN_FRONT = {x:500,y:360,r:285};
+  const SUN_TOP = {x:500,y:310,r:265};
+  const DEFAULT_LIGHT_COLOR = "#ffffff";
   const TYPE = {
     sun: {name:"太陽",symbol:"☀",color:"#f4b74c"},
     point: {name:"点光源",symbol:"✦",color:"#f4b74c"},
@@ -53,17 +56,38 @@
       height:type==="softbox"?1.0:0.8,
       yaw:type==="softbox"?68:type==="point"?-115:145,
       spread:type==="point"?45:90, power:type==="reflector"?45:100,
-      color:type==="reflector"?"#cfdeed":"#f6c65f"
+      color:DEFAULT_LIGHT_COLOR
     };
     if(type==="sun"){light.azimuth=65+count*24;light.elevation=40;}
     else {light.x=clamp(light.x+(count*0.65),-5.5,5.5); light.y+=count*0.25;}
     scene.lights.push(light);scene.selected=light.id;update(true);toast(kind(type).name+"を追加しました");
   }
   function selected() {return scene.lights.find(l=>l.id===scene.selected)||null;}
+  // 0° azimuth points toward the camera (+Z); +90° is camera-right (+X).
+  // Elevation 90° is zenith: both horizontal components are exactly zero.
+  function sunDirection(light){
+    const el=rad(clamp(light.elevation,0,90));
+    const horizontal=light.elevation>=90?0:Math.cos(el);
+    return {
+      x: horizontal*Math.sin(rad(light.azimuth)),
+      y: light.elevation>=90?1:Math.sin(el),
+      z: horizontal*Math.cos(rad(light.azimuth))
+    };
+  }
+  function isNearWhite(hex) {
+    const rgb=hexRgb(hex);
+    return rgb[0]>=245&&rgb[1]>=245&&rgb[2]>=245;
+  }
+  function visibleRayColor(hex) {
+    // A white light is drawn with neutral-grey guides on the white canvas.
+    return isNearWhite(hex)?"#8292a0":hex;
+  }
   function pos(light,view) {
     if(light.type==="sun"){
-      if(view==="front") return {x:500+Math.sin(rad(light.azimuth))*350,y:482-light.elevation*4.6};
-      return {x:500+Math.sin(rad(light.azimuth))*250,y:310+Math.cos(rad(light.azimuth))*250};
+      const dir=sunDirection(light);
+      return view==="front" ?
+        {x:SUN_FRONT.x+dir.x*SUN_FRONT.r,y:SUN_FRONT.y-dir.y*SUN_FRONT.r} :
+        {x:SUN_TOP.x+dir.x*SUN_TOP.r,y:SUN_TOP.y+dir.z*SUN_TOP.r};
     }
     return view==="front" ?
       {x:500+light.x*SCALE,y:375-light.y*SCALE} :
@@ -92,7 +116,7 @@
     context.strokeStyle=color;context.lineWidth=width;context.stroke();
   }
   function hexRgb(hex) {
-    const s=/^#[0-9a-fA-F]{6}$/.test(hex)?hex:"#f6c65f";
+    const s=/^#[0-9a-fA-F]{6}$/.test(hex)?hex:DEFAULT_LIGHT_COLOR;
     return [parseInt(s.slice(1,3),16),parseInt(s.slice(3,5),16),parseInt(s.slice(5,7),16)];
   }
   function cone(context,x,y,angle,spread,length,color,reflector=false){
@@ -113,14 +137,22 @@
   }
   function drawSunRays(context,point,view,l){
     if(!scene.showBeams)return;
-    const target={x:500,y:view==="front"?327:310};
-    const dx=target.x-point.x,dy=target.y-point.y,d=Math.hypot(dx,dy)||1;
-    const vx=dx/d,vy=dy/d,nx=-vy,ny=vx;
-    context.save();context.globalAlpha=.78;
+    const dir=sunDirection(l);
+    const dx=-dir.x,dy=view==="front"?dir.y:-dir.z;
+    const length=Math.hypot(dx,dy);
+    const tint=visibleRayColor(l.color);
+    if(length<0.025){
+      // Projection along the viewing axis has no directional 2D arrows.
+      context.save();context.beginPath();context.arc(point.x,point.y,44,0,Math.PI*2);
+      context.setLineDash([5,6]);context.strokeStyle=tint;context.lineWidth=2;context.stroke();
+      context.restore();return;
+    }
+    const vx=dx/length,vy=dy/length,nx=-vy,ny=vx;
+    context.save();context.globalAlpha=.86;
     for(let j=-2;j<=2;j++){
       const shift=j*21;
-      arrow(context,point.x+vx*37+nx*shift,point.y+vy*37+ny*shift,
-        point.x+vx*225+nx*shift,point.y+vy*225+ny*shift,l.color,2.5);
+      arrow(context,point.x+vx*38+nx*shift,point.y+vy*38+ny*shift,
+        point.x+vx*205+nx*shift,point.y+vy*205+ny*shift,tint,2.5);
     }
     context.restore();
   }
@@ -131,35 +163,36 @@
     let angle;
     if(view==="top")angle=rad(l.yaw-90);
     else angle=Math.atan2(327-p.y,500-p.x);
-    cone(context,p.x,p.y,angle,l.spread,310,l.color,l.type==="reflector");
+    cone(context,p.x,p.y,angle,l.spread,310,visibleRayColor(l.color),l.type==="reflector");
   }
   function drawIcon(context,l,view,active){
     const p=pos(l,view);context.save();context.translate(p.x,p.y);
     if(active){context.beginPath();context.arc(0,0,44,0,Math.PI*2);context.fillStyle="#e2f4ff";context.fill();
       context.strokeStyle="#318dc2";context.lineWidth=2;context.stroke();}
     if(l.type==="sun"){
-      context.fillStyle=l.color;context.strokeStyle="#d8a344";context.lineWidth=3;
+      context.fillStyle=l.color;context.strokeStyle=isNearWhite(l.color)?"#8292a0":"#bc923e";context.lineWidth=3;
       context.beginPath();context.arc(0,0,21,0,Math.PI*2);context.fill();context.stroke();
-      for(let i=0;i<8;i++){const a=i*Math.PI/4;line(context,29*Math.cos(a),29*Math.sin(a),36*Math.cos(a),36*Math.sin(a),"#d8a344",3);}
+      for(let i=0;i<8;i++){const a=i*Math.PI/4;line(context,29*Math.cos(a),29*Math.sin(a),36*Math.cos(a),36*Math.sin(a),isNearWhite(l.color)?"#8292a0":"#bc923e",3);}
     }else if(l.type==="point"){
-      context.fillStyle="#fff2c9";context.strokeStyle="#c99843";context.lineWidth=3;
+      context.fillStyle=l.color;context.strokeStyle="#8292a0";context.lineWidth=3;
       context.beginPath();context.arc(0,0,21,0,Math.PI*2);context.fill();context.stroke();
-      text(context,"✦",0,2,23,"#b47b27","700","center");
+      text(context,"✦",0,2,23,isNearWhite(l.color)?"#647e91":"#50606c","700","center");
     }else if(l.type==="softbox"){
       if(view==="top")context.rotate(rad(l.yaw-90));
       const sw= view==="top"?15:clamp(l.width*23,25,70);
       const sh= view==="top"?clamp(l.width*32,25,90):clamp(l.height*32,25,90);
-      rounded(context,-sw/2,-sh/2,sw,sh,3,"#fff2cf","#c89a42");
-      line(context,-sw/2+5,-sh/2+5,sw/2-5,sh/2-5,"#e0b668",1.5);
-      line(context,-sw/2+5,sh/2-5,sw/2-5,-sh/2+5,"#e0b668",1.5);
+      rounded(context,-sw/2,-sh/2,sw,sh,3,l.color,"#8292a0");
+      line(context,-sw/2+5,-sh/2+5,sw/2-5,sh/2-5,"#8292a0",1.5);
+      line(context,-sw/2+5,sh/2-5,sw/2-5,-sh/2+5,"#8292a0",1.5);
     }else{
       context.strokeStyle="#7c9ab0";context.lineWidth=7;
       context.beginPath();context.arc(0,0,27,-Math.PI*.58,Math.PI*.58);context.stroke();
-      context.fillStyle="#e3ebf1";context.beginPath();context.arc(-6,0,11,0,Math.PI*2);context.fill();
+      context.fillStyle=l.color;context.beginPath();context.arc(-6,0,11,0,Math.PI*2);context.fill();
     }
     context.restore();
     if(scene.showLabels){
-      const label=l.name.length>16?l.name.slice(0,15)+"…":l.name;
+      const zenith=l.type==="sun"&&l.elevation>=90;
+      const label=(l.name.length>16?l.name.slice(0,15)+"…":l.name)+(zenith?"（真上）":"");
       const width=Math.max(62,Math.min(190,label.length*15+18));
       rounded(context,clamp(p.x-width/2,4,W-width-4),p.y+44,width,27,7,"rgba(255,255,255,.93)","#e5e9ed");
       text(context,label,clamp(p.x,4+width/2,W-width/2-4),p.y+57,13,colors.ink,"650","center");
@@ -211,11 +244,12 @@
     text(context,"被写体",500,360,16,colors.ink,"750","center");
     text(context,"← 左",95,320,13,colors.muted,"550");
     text(context,"右 →",865,320,13,colors.muted,"550");
+    text(context,"太陽：中心ほど高度が高い / 外周は水平（0°）",500,605,13,colors.muted,"500","center");
   }
   function renderView(context,view,exporting=false){
     drawGrid(context,view);
     text(context,view==="front"?"PHOTO VIEW / 正面":"TOP VIEW / 俯瞰",24,30,19,"#42647c","800");
-    text(context,view==="front"?"写真は見た目だけを配置。光源は概念上の位置です。":"中心が被写体、下がカメラ。ドラッグで前後左右を編集。",24,55,13,"#8795a1");
+    text(context,view==="front"?"太陽の位置と平行光の方向は方位・高度から算出。":"下がカメラ側。太陽は中心ほど高高度、中心が真上。",24,55,13,"#8795a1");
     if(view==="front")drawPhoto(context,exporting);else drawTop(context);
     for(const l of scene.lights)drawRays(context,l,view);
     for(const l of scene.lights)drawIcon(context,l,view,!exporting&&l.id===scene.selected);
@@ -268,9 +302,11 @@
     $("propertyTitle").textContent=l?l.name+" の設定":"光源の設定";
     if(!l)return;
     $("lightName").value=l.name;$("lightColor").value=l.color;
+    $("azimuth").disabled=l.type==="sun"&&l.elevation>=90;
     for(const [id,d] of Object.entries(fields)){
       $(id).value=l[d.key];$(d.out).textContent=d.fmt(l[d.key]);
     }
+    if(l.type==="sun"&&l.elevation>=90)$("azimuthOut").textContent="真上では未定義";
     const isSun=l.type==="sun",isSoft=l.type==="softbox",reflector=l.type==="reflector";
     $("azimuthField").hidden=!isSun;$("elevationField").hidden=!isSun;
     $("widthField").hidden=isSun;$("heightField").hidden=!isSoft;
@@ -287,7 +323,13 @@
       camera:{...scene.camera},subject:{...scene.subject},
       lights:scene.lights.map(l=>{
         const common={id:l.id,name:l.name,type:l.type,powerPercent:l.power,colorHex:l.color};
-        if(l.type==="sun")return {...common,infiniteDistance:true,azimuthDegrees:l.azimuth,elevationDegrees:l.elevation};
+        if(l.type==="sun"){
+          const direction=sunDirection(l);
+          return {...common,infiniteDistance:true,
+            azimuthDegrees:l.elevation>=90?null:l.azimuth,elevationDegrees:l.elevation,
+            directionTowardSun:{x:round(direction.x,4),y:round(direction.y,4),z:round(direction.z,4)},
+            note:l.elevation>=90?"太陽は真上。方位角は定義されません。":"光はdirectionTowardSunの反対方向に進みます。"};
+        }
         return {...common,position:{x:round(l.x),y:round(l.y),z:round(l.z)},widthMeters:round(l.width),
           heightMeters:round(l.height),beamYawDegrees:l.yaw,beamSpreadDegrees:l.spread,passiveReflector:l.type==="reflector"};
       })
@@ -299,7 +341,8 @@
       const lines=[
         "元写真を、添付したライティング図のようにライティングしてください。",
         "被写体の形や姿勢、構図・画角・背景は変更せず、光の当たり方だけを変更してください。",
-        "図の線や光源アイコンは完成写真に入れないでください。"
+        "図の線や光源アイコンは完成写真に入れないでください。",
+        "ライティング図を主な参考にし、JSONは補助情報として扱ってください。"
       ];
       if(note)lines.push("",note);
       return lines.join("\n");
@@ -307,6 +350,7 @@
     const lines=[
       "添付する元写真を基準に、以下のライティング設計を反映した撮影イメージを生成してください。",
       "同封するライティング図は光源の配置説明です。図そのものを元写真に描き込まないでください。",
+      "ライティング図を主な参考とし、JSONは光源設定の補助情報としてください。",
       "",
       "【最優先の保持条件】",
       "元写真の構図、画角、被写体の形・顔・模様・姿勢、背景の物体配置をできるだけ維持してください。新しい被写体や小物を追加しないでください。",
@@ -321,7 +365,7 @@
     if(!scene.lights.length)lines.push("光源は未設定です。添付された図を参考に自然なライティングにしてください。");
     scene.lights.forEach((l,i)=>{
       if(l.type==="sun"){
-        lines.push((i+1)+". "+l.name+"（太陽、無限遠の平行光）：方位 "+l.azimuth+"°（カメラ方向を0°、右が正）、高度 "+l.elevation+"°。相対光量 "+l.power+"%、光色 "+l.color+"。自然な平行光と一貫した影の方向を表現。");
+        lines.push((i+1)+". "+l.name+"（太陽、無限遠の平行光）："+(l.elevation>=90?"被写体の真上（方位は未定義）":"方位 "+l.azimuth+"°（カメラ方向を0°、右が正）")+"、高度 "+l.elevation+"°。相対光量 "+l.power+"%、光色 "+l.color+"。自然な平行光と一貫した影の方向を表現。");
       }else{
         const typeName=l.type==="softbox"?"大型の面光源":l.type==="reflector"?"反射板（自らは発光しない）":"小さな光源";
         lines.push((i+1)+". "+l.name+"（"+typeName+"）："+relativeX(l.x)+"、"+relativeZ(l.z)+"、高さ "+round(l.y)+"m。"+
@@ -365,10 +409,24 @@
     const p=coordinates(e),l=selected();
     if(drag.kind==="light"&&l&&l.id===drag.id){
       if(l.type==="sun"){
-        if(scene.view==="top")l.azimuth=round(deg(Math.atan2(p.x-500,p.y-310)),0);
-        else{
-          l.azimuth=round(deg(Math.asin(clamp((p.x-500)/350,-1,1))),0);
-          l.elevation=round(clamp((482-p.y)/4.6,0,90),0);
+        if(scene.view==="top"){
+          const dx=p.x-SUN_TOP.x,dz=p.y-SUN_TOP.y;
+          const distance=Math.hypot(dx,dz);
+          // Top-down radius encodes elevation; zenith has undefined azimuth.
+          if(distance>1)l.azimuth=round(deg(Math.atan2(dx,dz)),0);
+          l.elevation=round(deg(Math.acos(clamp(distance/SUN_TOP.r,0,1))),0);
+        }else{
+          const dx=clamp((p.x-SUN_FRONT.x)/SUN_FRONT.r,-1,1);
+          const elevation=round(deg(Math.asin(clamp((SUN_FRONT.y-p.y)/SUN_FRONT.r,0,1))),0);
+          l.elevation=elevation;
+          const horizontal=elevation>=90?0:Math.cos(rad(elevation));
+          const x=clamp(dx,-horizontal,horizontal);
+          if(horizontal>0.0001){
+            // Keep the previous front/back hemisphere on the ambiguous front view.
+            const zSign=Math.cos(rad(l.azimuth))<0?-1:1;
+            const z=zSign*Math.sqrt(Math.max(0,horizontal*horizontal-x*x));
+            l.azimuth=round(deg(Math.atan2(x,z)),0);
+          }
         }
       }else if(scene.view==="front"){
         l.x=round(clamp((p.x-500)/SCALE,-6,6));l.y=round(clamp((375-p.y)/SCALE,-1,6));
@@ -432,6 +490,7 @@
     $(id).addEventListener("input",e=>{
       const l=selected();if(!l)return;
       l[d.key]=Number(e.target.value);$(d.out).textContent=d.fmt(l[d.key]);update(false);
+      if(l.type==="sun"&&(d.key==="elevation"||d.key==="azimuth"))renderFields();
     });
   }
   $("lightName").addEventListener("input",e=>{const l=selected();if(!l)return;l.name=e.target.value||kind(l.type).name;update();$("propertyTitle").textContent=l.name+" の設定";});
@@ -502,7 +561,7 @@
         azimuth:clamp(Number(l.azimuth)||0,-180,180),elevation:clamp(Number(l.elevation)||0,0,90),
         width:clamp(Number(l.width)||1,.2,4),height:clamp(Number(l.height)||1,.2,3),
         yaw:clamp(Number(l.yaw)||0,-180,180),spread:clamp(Number(l.spread)||80,10,170),
-        power:clamp(Number(l.power)||0,0,200),color:/^#[0-9a-fA-F]{6}$/.test(l.color)?l.color:"#f6c65f"
+        power:clamp(Number(l.power)||0,0,200),color:/^#[0-9a-fA-F]{6}$/.test(l.color)?l.color:DEFAULT_LIGHT_COLOR
       }));
       scene.nextId=scene.lights.length+1;scene.selected=null;originalFile=null;
       scene.showBeams=data.scene.showBeams!==false;scene.showLabels=data.scene.showLabels!==false;
