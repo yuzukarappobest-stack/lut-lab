@@ -22,6 +22,7 @@
     camera:{x:0,y:1.6,z:4}, subject:{x:0,y:0,z:0}
   };
   let photoImage = null;
+  let originalFile = null; // Retain exact imported bytes for the AI ZIP.
   let drag = null;
   let promptDirty = false;
   let toastTimer = null;
@@ -221,6 +222,8 @@
     if(!promptDirty)$("prompt").value=buildPrompt();
     $("lightCount").textContent=scene.lights.length;
     $("status").textContent=scene.lights.length+"灯の光源を配置中 · "+(photoImage?"写真あり":"写真なし");
+    $("zipStatus").textContent=originalFile?"元写真は読み込み時の原本画質・形式で収録します。":
+      scene.imageData?"原本が未登録です。ZIP保存時に元写真を再選択できます。":"まず写真を読み込んでください。";
     $("viewHint").textContent=scene.view==="front"?"写真と光源をドラッグして移動":"ドラッグで左右・前後を変更";
   }
   function renderList(){
@@ -379,7 +382,7 @@
   canvas.addEventListener("lostpointercapture",endDrag);
 
   function setPhoto(data,preservePlacement=false){
-    if(!data){photoImage=null;scene.imageData=null;update();return;}
+    if(!data){photoImage=null;scene.imageData=null;originalFile=null;update();return;}
     const image=new Image();
     image.onload=()=>{
       photoImage=image;scene.imageData=data;
@@ -406,6 +409,7 @@
         const max=2000,scale=Math.min(1,max/Math.max(img.width,img.height));
         const c=document.createElement("canvas");c.width=Math.max(1,Math.round(img.width*scale));c.height=Math.max(1,Math.round(img.height*scale));
         const cx=c.getContext("2d");cx.drawImage(img,0,0,c.width,c.height);
+        originalFile=file;
         setPhoto(c.toDataURL("image/jpeg",.91));
       };
       img.onerror=()=>toast("この画像形式はブラウザで開けません");
@@ -443,7 +447,7 @@
   $("resetBtn").addEventListener("click",()=>{
     if(!confirm("光源配置と写真を初期化しますか？"))return;
     scene.lights=[];scene.selected=null;scene.nextId=1;scene.photo={x:258,y:159,w:484,h:322,ratio:484/322};
-    scene.imageData=null;photoImage=null;promptDirty=false;$("intent").value="";$("promptMode").value="simple";
+    scene.imageData=null;photoImage=null;originalFile=null;promptDirty=false;$("intent").value="";$("promptMode").value="simple";
     setView("front");update(true);toast("初期化しました");
   });
   $("showBeams").addEventListener("change",e=>{scene.showBeams=e.target.checked;update();});
@@ -491,7 +495,7 @@
         yaw:clamp(Number(l.yaw)||0,-180,180),spread:clamp(Number(l.spread)||80,10,170),
         power:clamp(Number(l.power)||0,0,200),color:/^#[0-9a-fA-F]{6}$/.test(l.color)?l.color:"#f6c65f"
       }));
-      scene.nextId=scene.lights.length+1;scene.selected=null;
+      scene.nextId=scene.lights.length+1;scene.selected=null;originalFile=null;
       scene.showBeams=data.scene.showBeams!==false;scene.showLabels=data.scene.showLabels!==false;
       $("showBeams").checked=scene.showBeams;$("showLabels").checked=scene.showLabels;
       $("intent").value=typeof data.intent==="string"?data.intent:"";
@@ -513,17 +517,68 @@
     }catch(err){toast("読み込みエラー: "+err.message);}
     e.target.value="";
   });
-  $("exportBtn").addEventListener("click",()=>{
-    const out=document.createElement("canvas");out.width=2040;out.height=780;
-    const ox=out.getContext("2d");
-    ox.fillStyle="#f3f6f8";ox.fillRect(0,0,out.width,out.height);
-    ox.save();ox.translate(10,60);renderView(ox,"front",true);ox.restore();
-    ox.save();ox.translate(1030,60);renderView(ox,"top",true);ox.restore();
-    text(ox,"LIGHTING STUDIO  |  LIGHTING PLAN",24,31,22,"#1b384a","850");
-    text(ox,"撮影イメージ設計図 / 光源配置の概念図",25,745,16,"#647987");
-    text(ox,"座標は相対位置・図は測光結果ではありません",2010,745,14,"#647987","500","right");
-    out.toBlob(blob=>{if(blob){downloadBlob(blob,"lighting-diagram.png");toast("正面＋俯瞰図を保存しました");}
-      else toast("PNG保存に失敗しました");},"image/png");
+  function createDiagramPngBlob(){
+    return new Promise((resolve,reject)=>{
+      try{
+        const out=document.createElement("canvas");out.width=2040;out.height=780;
+        const ox=out.getContext("2d");
+        if(!ox)throw new Error("画像を書き出せません");
+        ox.fillStyle="#f3f6f8";ox.fillRect(0,0,out.width,out.height);
+        ox.save();ox.translate(10,60);renderView(ox,"front",true);ox.restore();
+        ox.save();ox.translate(1030,60);renderView(ox,"top",true);ox.restore();
+        text(ox,"LIGHTING STUDIO  |  LIGHTING PLAN",24,31,22,"#1b384a","850");
+        text(ox,"撮影イメージ設計図 / 光源配置の概念図",25,745,16,"#647987");
+        text(ox,"座標は相対位置・図は測光結果ではありません",2010,745,14,"#647987","500","right");
+        out.toBlob(blob=>blob?resolve(blob):reject(new Error("PNG変換に失敗しました")),"image/png");
+      }catch(error){reject(error);}
+    });
+  }
+  $("exportBtn").addEventListener("click",async ()=>{
+    try{
+      const blob=await createDiagramPngBlob();
+      downloadBlob(blob,"lighting-diagram.png");
+      toast("正面＋俯瞰図を保存しました");
+    }catch(error){toast("PNG保存エラー: "+error.message);}
+  });
+  $("zipSourceInput").addEventListener("change",async e=>{
+    const file=e.target.files&&e.target.files[0];
+    e.target.value="";
+    if(!file)return;
+    if(!file.type.startsWith("image/")&&!/\.(jpe?g|png|heic|heif|webp|tiff?)$/i.test(file.name)){
+      toast("元写真の画像ファイルを選択してください");return;
+    }
+    originalFile=file;
+    update();
+    toast("ZIP用の元写真を登録しました。もう一度ZIP保存を押してください");
+  });
+  function imageExtension(file){
+    const ext=(file.name.match(/\.[a-z0-9]{2,8}$/i)||[])[0];
+    if(ext)return ext.toLowerCase();
+    return {"image/jpeg":".jpg","image/png":".png","image/heic":".heic",
+      "image/heif":".heif","image/webp":".webp","image/tiff":".tif"}[file.type]||".img";
+  }
+  $("zipBtn").addEventListener("click",async ()=>{
+    if(!scene.imageData){toast("まず元写真を読み込んでください");return;}
+    if(!originalFile){
+      toast("元写真の原本を再選択してください");
+      $("zipSourceInput").click();
+      return;
+    }
+    const button=$("zipBtn");button.disabled=true;button.textContent="ZIPを作成中…";
+    try{
+      if(!window.LightingZip)throw new Error("ZIP作成機能を読み込めませんでした");
+      const diagram=await createDiagramPngBlob();
+      const entries=[
+        {name:"original"+imageExtension(originalFile),blob:originalFile},
+        {name:"lighting-diagram.png",blob:diagram},
+        {name:"prompt.txt",blob:new Blob([$("prompt").value],{type:"text/plain;charset=utf-8"})},
+        {name:"lighting-data.json",blob:new Blob([JSON.stringify(lightingData(),null,2)],{type:"application/json;charset=utf-8"})}
+      ];
+      const archive=await window.LightingZip.createZip(entries);
+      downloadBlob(archive,"lighting-package.zip");
+      toast("ZIPを保存しました（元写真・図・指示文・JSON）");
+    }catch(error){toast("ZIP保存エラー: "+error.message);}
+    finally{button.disabled=false;button.textContent="元写真＋図＋指示文をZIP保存";}
   });
   update(true);
 })();
