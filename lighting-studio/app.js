@@ -282,6 +282,16 @@
     };
   }
   function buildPrompt(){
+    const note=$("intent").value.trim();
+    if($("promptMode").value!=="detailed"){
+      const lines=[
+        "元写真を、添付したライティング図のようにライティングしてください。",
+        "被写体の形や姿勢、構図・画角・背景は変更せず、光の当たり方だけを変更してください。",
+        "図の線や光源アイコンは完成写真に入れないでください。"
+      ];
+      if(note)lines.push("",note);
+      return lines.join("\n");
+    }
     const lines=[
       "添付する元写真を基準に、以下のライティング設計を反映した撮影イメージを生成してください。",
       "同封するライティング図は光源の配置説明です。図そのものを元写真に描き込まないでください。",
@@ -307,7 +317,6 @@
           "照射/反射の広がり "+l.spread+"°、相対的な光の寄与 "+l.power+"%、光色 "+l.color+"。");
       }
     });
-    const note=$("intent").value.trim();
     if(note)lines.push("","【仕上がりの希望】",note);
     lines.push("","【出力】","元写真を再ライティングした完成イメージを1枚生成してください。光源アイコン、矢印、図、文字、透かしは完成写真に入れないでください。"+
       "隠れている面の形状・影・反射特性は推定になるため、見た目の整合性を優先してください。");
@@ -434,12 +443,13 @@
   $("resetBtn").addEventListener("click",()=>{
     if(!confirm("光源配置と写真を初期化しますか？"))return;
     scene.lights=[];scene.selected=null;scene.nextId=1;scene.photo={x:258,y:159,w:484,h:322,ratio:484/322};
-    scene.imageData=null;photoImage=null;promptDirty=false;$("intent").value="";
+    scene.imageData=null;photoImage=null;promptDirty=false;$("intent").value="";$("promptMode").value="simple";
     setView("front");update(true);toast("初期化しました");
   });
   $("showBeams").addEventListener("change",e=>{scene.showBeams=e.target.checked;update();});
   $("showLabels").addEventListener("change",e=>{scene.showLabels=e.target.checked;update();});
   $("intent").addEventListener("input",()=>{if(!promptDirty)$("prompt").value=buildPrompt();});
+  $("promptMode").addEventListener("change",()=>{promptDirty=false;$("prompt").value=buildPrompt();});
   $("prompt").addEventListener("input",()=>{promptDirty=true;});
   $("regenerate").addEventListener("click",()=>{promptDirty=false;$("prompt").value=buildPrompt();toast("説明文を再生成しました");});
   async function copy(textValue){
@@ -464,7 +474,7 @@
   $("saveBtn").addEventListener("click",()=>{
     jsonFile({app:"Lighting Studio",version:1,scene:{
       lights:scene.lights,photo:scene.photo,imageData:scene.imageData,showBeams:scene.showBeams,showLabels:scene.showLabels,
-      nextId:scene.nextId},intent:$("intent").value,prompt:$("prompt").value},"lighting-project.json");
+      nextId:scene.nextId},intent:$("intent").value,promptMode:$("promptMode").value,prompt:$("prompt").value},"lighting-project.json");
     toast("再編集できるプロジェクトを保存しました");
   });
   $("projectInput").addEventListener("change",async e=>{
@@ -485,6 +495,7 @@
       scene.showBeams=data.scene.showBeams!==false;scene.showLabels=data.scene.showLabels!==false;
       $("showBeams").checked=scene.showBeams;$("showLabels").checked=scene.showLabels;
       $("intent").value=typeof data.intent==="string"?data.intent:"";
+      $("promptMode").value=data.promptMode==="detailed"?"detailed":"simple";
       if(data.scene.imageData&&typeof data.scene.imageData==="string"&&data.scene.imageData.startsWith("data:image/")){
         setPhoto(data.scene.imageData,true);
       }else{photoImage=null;scene.imageData=null;}
@@ -497,7 +508,7 @@
         if(scene.photo.y+scene.photo.h>H)scene.photo.y=Math.max(0,H-scene.photo.h);
       }
       promptDirty=false;setView("front");update(true);
-      if(typeof data.prompt==="string"&&data.prompt){$("prompt").value=data.prompt;promptDirty=true;}
+      if(typeof data.prompt==="string"&&data.prompt&&data.prompt!==buildPrompt()){$("prompt").value=data.prompt;promptDirty=true;}
       toast("プロジェクトを開きました");
     }catch(err){toast("読み込みエラー: "+err.message);}
     e.target.value="";
