@@ -82,6 +82,7 @@
       <div class="divider"></div>
       <div class="section-title">保存・共有</div>
       <button id="zipBtn" class="button primary zip-button" type="button">元写真＋図＋指示文をZIP保存</button>
+      <input id="zipSourceInput" type="file" accept="image/*" hidden>
       <p class="aside-help">元写真（オリジナル画質）・説明図PNG・指示文TXT・光源データJSONをひとまとめにします。<span id="zipStatus">まず写真を読み込んでください。</span></p>
       <div class="output-buttons"><button id="jsonBtn" class="button">光源データ JSON</button><button id="txtBtn" class="button">指示文 TXT</button></div>
       <p class="aside-help">JSONには光源・被写体・カメラの位置情報を保存。元写真は含めません。プロジェクト保存には縮小した写真が含まれるため、ファイルが大きくなる場合があります。</p>
