@@ -81,6 +81,8 @@
       <div class="output-buttons"><button id="regenerate" class="button subtle">プロンプト再生成</button><button id="copyPrompt" class="button primary">文章をコピー</button></div>
       <div class="divider"></div>
       <div class="section-title">保存・共有</div>
+      <button id="zipBtn" class="button primary zip-button" type="button">元写真＋図＋指示文をZIP保存</button>
+      <p class="aside-help">元写真（オリジナル画質）・説明図PNG・指示文TXT・光源データJSONをひとまとめにします。<span id="zipStatus">まず写真を読み込んでください。</span></p>
       <div class="output-buttons"><button id="jsonBtn" class="button">光源データ JSON</button><button id="txtBtn" class="button">指示文 TXT</button></div>
       <p class="aside-help">JSONには光源・被写体・カメラの位置情報を保存。元写真は含めません。プロジェクト保存には縮小した写真が含まれるため、ファイルが大きくなる場合があります。</p>
     </aside>
@@ -88,6 +90,7 @@
   <footer>Lighting Studio · ブラウザ内で編集。写真や配置情報は外部サーバーへ送信しません。</footer>
 </div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="./zip.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>
