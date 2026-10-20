@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#14212d">
+  <meta name="description" content="写真のライティング配置を図解し、ChatGPTなどの画像AI向けプロンプトを作成する無料Webツール">
+  <title>Lighting Studio — ライティング図エディター</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<div class="app">
+  <header class="header">
+    <div class="brand"><div class="brand-mark">◉</div><div><div class="brand-name">LIGHTING <span>STUDIO</span></div><div class="brand-sub">Photography lighting diagram &amp; AI prompt</div></div></div>
+    <div class="header-actions">
+      <label class="button primary upload-btn">写真を選ぶ<input id="photoInput" type="file" accept="image/*" hidden></label>
+      <button id="exportBtn" class="button">図をPNG保存</button>
+      <button id="saveBtn" class="button subtle">プロジェクト保存</button>
+      <label class="button subtle">開く<input id="projectInput" type="file" accept=".json,application/json" hidden></label>
+    </div>
+  </header>
+  <main class="layout">
+    <aside class="tools panel">
+      <div class="section-title">光源を追加</div>
+      <div class="tool-grid">
+        <button type="button" class="tool" data-add="sun"><span class="tool-symbol sun">☀</span><span>太陽</span></button>
+        <button type="button" class="tool" data-add="point"><span class="tool-symbol point">✦</span><span>点光源</span></button>
+        <button type="button" class="tool" data-add="softbox"><span class="tool-symbol softbox">▤</span><span>面光源</span></button>
+        <button type="button" class="tool" data-add="reflector"><span class="tool-symbol reflector">◐</span><span>レフ板</span></button>
+      </div>
+      <p class="aside-help">光源をタップして追加。キャンバス上でドラッグして移動します。</p>
+      <div class="divider"></div>
+      <div class="section-row"><span class="section-title">配置した光源</span><span id="lightCount" class="count">0</span></div>
+      <div id="lightList" class="light-list"></div>
+      <div class="divider"></div>
+      <div class="section-title">表示</div>
+      <label class="check"><input id="showBeams" type="checkbox" checked> 光の向き・広がりを表示</label>
+      <label class="check"><input id="showLabels" type="checkbox" checked> 光源名を表示</label>
+      <div class="divider"></div>
+      <div class="section-title">使い方</div>
+      <p class="aside-help">写真の外に光源を配置できます。写真をドラッグで動かし、右下のハンドルで拡大縮小。俯瞰図では光源の前後位置を変更できます。図は配置説明用で、光の物理シミュレーションではありません。</p>
+    </aside>
+    <section class="editor panel">
+      <div class="editor-head">
+        <div class="tabs" role="tablist" aria-label="ビューの切り替え">
+          <button id="frontTab" class="tab active" role="tab" aria-selected="true">写真ビュー</button>
+          <button id="topTab" class="tab" role="tab" aria-selected="false">俯瞰ビュー</button>
+        </div>
+        <div class="stage-actions"><button id="centerPhoto" class="button small">写真を中央へ</button><button id="resetBtn" class="button small subtle">初期化</button></div>
+      </div>
+      <div class="canvas-shell"><canvas id="diagram" width="1000" height="650" aria-label="ライティング配置の編集キャンバス">Canvas対応ブラウザをご利用ください。</canvas></div>
+      <div class="status-bar"><span id="status">写真を読み込むか、光源を追加して開始</span><span id="viewHint">写真と光源をドラッグできます</span></div>
+      <div class="properties">
+        <div class="section-row"><h2 id="propertyTitle">光源の設定</h2><button id="deleteLight" class="button danger small" hidden>光源を削除</button></div>
+        <div id="emptyProperties" class="empty-properties">光源を選ぶと、強さ・大きさ・方向・照射角を設定できます。</div>
+        <div id="propertyFields" hidden>
+          <div class="field-grid">
+            <label class="field"><span>名前</span><input id="lightName" type="text" maxlength="40"></label>
+            <label class="field"><span>光の強さ <output id="powerOut"></output></span><input id="power" type="range" min="0" max="200" step="5"></label>
+            <label class="field" id="widthField"><span>幅・直径 <output id="widthOut"></output></span><input id="widthRange" type="range" min="0.2" max="4" step="0.1"></label>
+            <label class="field" id="heightField"><span>高さ <output id="heightOut"></output></span><input id="heightRange" type="range" min="0.2" max="3" step="0.1"></label>
+            <label class="field" id="spreadField"><span>照射角 <output id="spreadOut"></output></span><input id="spread" type="range" min="10" max="170" step="5"></label>
+            <label class="field" id="yawField"><span>照射方向（俯瞰） <output id="yawOut"></output></span><input id="yaw" type="range" min="-180" max="180" step="5"></label>
+            <label class="field" id="azimuthField" hidden><span>太陽の方位（撮影方向を0°） <output id="azimuthOut"></output></span><input id="azimuth" type="range" min="-180" max="180" step="5"></label>
+            <label class="field" id="elevationField" hidden><span>太陽高度 <output id="elevationOut"></output></span><input id="elevation" type="range" min="0" max="90" step="1"></label>
+            <label class="field" id="positionXField"><span>左右位置 X <output id="posXOut"></output></span><input id="posX" type="range" min="-6" max="6" step="0.1"></label>
+            <label class="field" id="positionYField"><span>高さ Y <output id="posYOut"></output></span><input id="posY" type="range" min="-1" max="6" step="0.1"></label>
+            <label class="field" id="positionZField"><span>奥行き Z <output id="posZOut"></output></span><input id="posZ" type="range" min="-5" max="5" step="0.1"></label>
+            <label class="field"><span>光の色</span><input id="lightColor" type="color" value="#f6c65f"></label>
+          </div>
+          <p class="property-note">単位は作図用の相対mです。太陽は無限遠光源として方位と高度で管理します。レフ板の「強さ」は反射寄与の目安です。</p>
+        </div>
+      </div>
+    </section>
+    <aside class="output panel">
+      <div class="section-title">AIへの指示</div>
+      <p class="aside-help">ChatGPTなどに「元写真」と「ライティング図」を添付し、この文章を貼り付けてください。</p>
+      <label class="field"><span>仕上がりの補足・意図</span><textarea id="intent" rows="3" placeholder="例：自然な色、柔らかい影、朝の斜光。背景の形は変えない。"></textarea></label>
+      <label class="field"><span>生成したプロンプト（編集可能）</span><textarea id="prompt" rows="14" spellcheck="false"></textarea></label>
+      <div class="output-buttons"><button id="regenerate" class="button subtle">プロンプト再生成</button><button id="copyPrompt" class="button primary">文章をコピー</button></div>
+      <div class="divider"></div>
+      <div class="section-title">保存・共有</div>
+      <div class="output-buttons"><button id="jsonBtn" class="button">光源データ JSON</button><button id="txtBtn" class="button">指示文 TXT</button></div>
+      <p class="aside-help">JSONには光源・被写体・カメラの位置情報を保存。元写真は含めません。プロジェクト保存には縮小した写真が含まれるため、ファイルが大きくなる場合があります。</p>
+    </aside>
+  </main>
+  <footer>Lighting Studio · ブラウザ内で編集。写真や配置情報は外部サーバーへ送信しません。</footer>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="./app.js"></script>
+</body>
+</html>
