@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#14212d">
   <meta name="description" content="写真のライティング配置を図解し、ChatGPTなどの画像AI向けプロンプトを作成する無料Webツール">
   <title>Lighting Studio — ライティング図エディター</title>
-  <link rel="stylesheet" href="./style.css?v=20261021c">
+  <link rel="stylesheet" href="./style.css?v=20261021d">
 </head>
 <body>
 <div class="app">
@@ -61,12 +61,12 @@
             <label class="field" id="heightField"><span>高さ <output id="heightOut"></output></span><input id="heightRange" type="range" min="0.2" max="3" step="0.1"></label>
             <label class="field" id="spreadField"><span>照射角 <output id="spreadOut"></output></span><input id="spread" type="range" min="10" max="170" step="5"></label>
             <label class="field" id="yawField"><span>照射方向（俯瞰） <output id="yawOut"></output></span><input id="yaw" type="range" min="-180" max="180" step="5"></label>
-            <label class="field" id="azimuthField" hidden><span>太陽の方位（撮影方向を0°） <output id="azimuthOut"></output></span><input id="azimuth" type="range" min="-180" max="180" step="5"></label>
-            <label class="field" id="elevationField" hidden><span>太陽高度 <output id="elevationOut"></output></span><input id="elevation" type="range" min="0" max="90" step="1"></label>
+            <label class="field" id="azimuthField" hidden><span>太陽の方位（カメラ側0°・右90°） <output id="azimuthOut"></output></span><input id="azimuth" type="range" min="-180" max="180" step="5"></label>
+            <label class="field" id="elevationField" hidden><span>太陽高度（90°＝真上） <output id="elevationOut"></output></span><input id="elevation" type="range" min="0" max="90" step="1"></label>
             <label class="field" id="positionXField"><span>左右位置 X <output id="posXOut"></output></span><input id="posX" type="range" min="-6" max="6" step="0.1"></label>
             <label class="field" id="positionYField"><span>高さ Y <output id="posYOut"></output></span><input id="posY" type="range" min="-1" max="6" step="0.1"></label>
             <label class="field" id="positionZField"><span>奥行き Z <output id="posZOut"></output></span><input id="posZ" type="range" min="-5" max="5" step="0.1"></label>
-            <label class="field"><span>光の色</span><input id="lightColor" type="color" value="#f6c65f"></label>
+            <label class="field"><span>光の色</span><input id="lightColor" type="color" value="#ffffff"></label>
           </div>
           <p class="property-note">単位は作図用の相対mです。太陽は無限遠光源として方位と高度で管理します。レフ板の「強さ」は反射寄与の目安です。</p>
         </div>
@@ -96,7 +96,7 @@
   <footer>Lighting Studio · ブラウザ内で編集。写真や配置情報は外部サーバーへ送信しません。</footer>
 </div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="./zip.js?v=20261021c"></script>
-<script src="./app.js?v=20261021c"></script>
+<script src="./zip.js?v=20261021d"></script>
+<script src="./app.js?v=20261021d"></script>
 </body>
 </html>
